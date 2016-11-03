@@ -1,6 +1,27 @@
-# WiFi AP scaning Example
+WiFi AP scaning Example
+========================
 
-Starts a FreeRTOS task to scan the Wi-Fi APs every 6s:
+Starts a FreeRTOS task to scan the Wi-Fi APs every 6s
+
+
+### Build and upload
+
+```bash
+$ cd /path/to/06_wifi_scan
+$ make flash
+```
+
+
+### Try
+
+After you upload the firmware into the flash, use a serial tool to check the output of the board:
+
+```bash
+$ picocom -b 115200 /dev/ttyUSB0
+```
+
+
+Serial will output:
 
 ```bash
 ets Jun  8 2016 00:22:57

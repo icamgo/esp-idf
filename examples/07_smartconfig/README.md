@@ -1,6 +1,27 @@
-# Smartconfig Example
+Smartconfig Example
+====================
 
-Starts a FreeRTOS task to enter smartconfig state:
+Starts a FreeRTOS task to enter smartconfig state
+
+
+### Build and upload
+
+```bash
+$ cd /path/to/07_smartconfig
+$ make flash
+```
+
+
+### Try
+
+After you upload the firmware into the flash, use a serial tool to check the output of the board:
+
+```bash
+$ picocom -b 115200 /dev/ttyUSB0
+```
+
+
+Serial will output:
 
 ```bash
 ets Jun  8 2016 00:22:57
@@ -41,7 +62,24 @@ SC version: V2.6.2
 [sc_wifi_scan_done,297] STATUS:0
 ic_enable_sniffer
 [sc_wifi_scan_done,435] STATUS:0
-SC_STATUS_FIND_CHANNEL
+SC_STATUS_FIND_CHANNEL					<---------- waitting to network configuration
+```
+
+
+1. Connect your phone to your WiFi router
+2. Scan the following QRcode in WeChat:
+
+
+![MAIKE CTRL](Maike-wifi-ctrl-en.jpg)
+
+
+3. click "Network Connection", Enter WiFi password then click "Connect" to complete WiFi connection 
+
+
+Now the serial will output:
+
+
+```bash
 TYPE: AIRKISS
 T|PHONE MAC: 90 fd 60 3c c5 5d
 T|AP MAC   : e0 46 9a 8b 84 7e

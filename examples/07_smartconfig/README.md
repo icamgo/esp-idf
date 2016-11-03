@@ -67,13 +67,12 @@ SC_STATUS_FIND_CHANNEL					<---------- waitting to network configuration
 
 
 1. Connect your phone to your WiFi router
-2. Scan the following QRcode in WeChat:
+2. Scan the following QRcode in WeChat
+3. Click "Network Connection"
+4. Enter WiFi password then click "Connect" to complete WiFi connection 
 
 
 ![MAIKE CTRL](Maike-wifi-ctrl-en.jpg)
-
-
-3. click "Network Connection", Enter WiFi password then click "Connect" to complete WiFi connection 
 
 
 Now the serial will output:

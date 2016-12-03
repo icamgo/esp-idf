@@ -36,6 +36,7 @@ Contents:
    build_system
    openocd
    Secure Boot <security/secure-boot>
+   ULP coprocessor <api/ulp.rst>
 
 .. API Reference
    ..
@@ -97,16 +98,18 @@ Contents:
    Wi-Fi <api/esp_wifi>
    Bluetooth <api/bt>
    Watchdogs <api/wdts>
-
-   api/gpio
-   api/uart
-   api/ledc
-   api/rmt
+   OTA <api/ota>
+   GPIO <api/gpio>
+   UART <api/uart>
+   LED Control <api/ledc>
+   Remote Control <api/rmt>
+   Timer <api/timer>
    Pulse Counter <api/pcnt>
    SPI Flash and Partition APIs <api/spi_flash>
    Logging <api/log>
    Non-Volatile Storage <api/nvs_flash>
    Virtual Filesystem <api/vfs>
+   Ethernet <api/esp_eth>
    deep-sleep-stub
 
    Template <api/template>

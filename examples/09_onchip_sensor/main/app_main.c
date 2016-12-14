@@ -18,14 +18,15 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 
+#include "driver/adc.h"
+
 uint8_t temprature_sens_read();	
-uint32_t hall_sens_read();
 
 void read_sens_task(void *pvParameters)
 {
 	while (1) {
 		printf("ESP32 onchip Temperature = %d\n", temprature_sens_read());
-		printf("ESP32 onchip Hall sensor = %d\n", hall_sens_read());
+		printf("ESP32 onchip Hall sensor(new) = %d\n", hall_sensor_read());
 		vTaskDelay(4000 / portTICK_PERIOD_MS);
 	}
 }
@@ -33,9 +34,10 @@ void read_sens_task(void *pvParameters)
 void app_main()
 {
 	nvs_flash_init();
-	system_init();
+	adc1_config_width(ADC_WIDTH_12Bit);
+
 	printf("Welcome to Noduino Quantum\r\n");
 	printf("Try to read the sensors inside the ESP32 chip ... \r\n");
-	xTaskCreatePinnedToCore(&read_sens_task, "read_sens_task", 1024, NULL, 5,
+	xTaskCreatePinnedToCore(&read_sens_task, "read_sens_task", 2048, NULL, 5,
 				NULL, 0);
 }

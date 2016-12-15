@@ -63,10 +63,9 @@ static void wifi_init(void)
 void app_main()
 {
 	nvs_flash_init();
-	system_init();
 	wifi_init();
 	printf("Welcome to Noduino Quantum\r\n");
 	printf("WiFi AP SSID Scanning... \r\n");
-	xTaskCreatePinnedToCore(&scan_ap_task, "scan_ap_task", 1024, NULL, 5,
+	xTaskCreatePinnedToCore(&scan_ap_task, "scan_ap_task", 2048, NULL, 5,
 				NULL, 0);
 }

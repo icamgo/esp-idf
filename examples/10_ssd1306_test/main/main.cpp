@@ -200,8 +200,7 @@ void ssd1306_task(void *pvParameter)
 extern "C" void app_main()
 {
     nvs_flash_init();
-    system_init();
 	printf("Welcome to Noduino!\r\n");
 	printf("Start to test SSD1306 OLED!\r\n");
-    xTaskCreate(&ssd1306_task, "ssd1306_task", 1024, NULL, 5, NULL);
+    xTaskCreate(&ssd1306_task, "ssd1306_task", 2048, NULL, 5, NULL);
 }

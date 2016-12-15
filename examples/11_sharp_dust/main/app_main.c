@@ -111,6 +111,6 @@ void app_main()
 
 	printf("Welcome to Noduino Quantum\r\n");
 	printf("Sharp GP2Y1010AU0F Particle Sensor Example... \r\n");
-	xTaskCreatePinnedToCore(&read_partical_task, "read_partical_task", 1024, NULL, 5,
+	xTaskCreatePinnedToCore(&read_partical_task, "read_partical_task", 2048, NULL, 5,
 				NULL, 0);
 }

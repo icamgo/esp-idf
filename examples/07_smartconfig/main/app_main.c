@@ -105,10 +105,9 @@ static void smartconfig_init(void)
 void app_main()
 {
 	nvs_flash_init();
-	system_init();
 	smartconfig_init();
 	printf("Welcome to Noduino Quantum\r\n");
 	printf("Smartconfig is comming... \r\n");
-	xTaskCreatePinnedToCore(&smartconfig_task, "smartconfig_task", 1024,
+	xTaskCreatePinnedToCore(&smartconfig_task, "smartconfig_task", 2048,
 				NULL, 5, NULL, 0);
 }

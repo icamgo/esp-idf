@@ -94,11 +94,13 @@ extern "C" {
  */
 typedef struct {
     system_event_handler_t event_handler;  /**< WiFi event handler */
+    uint32_t rx_buf_num;  /**< WiFi RX buffer number */
 } wifi_init_config_t;
 
 
 #define WIFI_INIT_CONFIG_DEFAULT() { \
     .event_handler = &esp_event_send, \
+    .rx_buf_num = CONFIG_ESP32_WIFI_RX_BUFFER_NUM, \
 };
 
 /**
@@ -107,17 +109,15 @@ typedef struct {
   *         WiFi NVS structure etc, this WiFi also start WiFi task
   *
   * @attention 1. This API must be called before all other WiFi API can be called
-  * @attention 2. Generally we should init event_q in *config, WiFi driver will post the event
-  *               to this queue when event happens, such as, when station connects to WiFi, WiFi driver
-  *               will post station connected event to this queue. If the queue is not initialized, WiFi
-  *               will not post any events
+  * @attention 2. event_handler field in cfg should be set to a valid event handler function.
+  *            In most cases, use the WIFI_INIT_CONFIG_DEFAULT macro which sets esp_event_send().
   *
   * @param  config provide WiFi init configuration
   *
   * @return
   *    - ESP_OK: succeed
   *    - ESP_ERR_WIFI_NO_MEM: out of memory
-  *    - others: refer to error code esp_err.h 
+  *    - others: refer to error code esp_err.h
   */
 esp_err_t esp_wifi_init(wifi_init_config_t *config);
 
@@ -507,16 +507,14 @@ esp_err_t esp_wifi_set_mac(wifi_interface_t ifx, uint8_t mac[6]);
 esp_err_t esp_wifi_get_mac(wifi_interface_t ifx, uint8_t mac[6]);
 
 /**
-  * @brief The RX callback function in the promiscuous mode.
+  * @brief The RX callback function in the promiscuous mode. 
+  *        Each time a packet is received, the callback function will be called.
   *
-  * Each time a packet is received, the callback function will be called.
+  * @param buf  Data received. Type of data in buffer (wifi_promiscuous_pkt_t or wifi_pkt_rx_ctrl_t) indicated by 'type' parameter.
+  * @param type  promiscuous packet type.
   *
-  * @param buf  the data received
-  * @param len  data length
-  *
-  * @return    none
   */
-typedef void (* wifi_promiscuous_cb_t)(void *buf, uint16_t len);
+typedef void (* wifi_promiscuous_cb_t)(void *buf, wifi_promiscuous_pkt_type_t type);
 
 /**
   * @brief Register the RX callback function in the promiscuous mode.

@@ -25,6 +25,9 @@
 #include "lwip/ip_addr.h"
 #include "lwip/ip6_addr.h"
 #include "lwip/nd6.h"
+#if LWIP_DNS /* don't build if not configured for use in lwipopts.h */
+#include "lwip/dns.h"
+#endif
 #include "netif/wlanif.h"
 #include "netif/ethernetif.h"
 
@@ -213,7 +216,7 @@ esp_err_t tcpip_adapter_set_ip_info(tcpip_adapter_if_t tcpip_if, tcpip_adapter_i
     tcpip_adapter_dhcp_status_t status;
 
     if (tcpip_if >= TCPIP_ADAPTER_IF_MAX || ip_info == NULL ||
-            ip4_addr_isany_val(ip_info->ip) || ip4_addr_isany_val(ip_info->netmask) || ip4_addr_isany_val(ip_info->gw)) {
+            ip4_addr_isany_val(ip_info->ip) || ip4_addr_isany_val(ip_info->netmask)) {
         return ESP_ERR_TCPIP_ADAPTER_INVALID_PARAMS;
     }
 
@@ -229,6 +232,12 @@ esp_err_t tcpip_adapter_set_ip_info(tcpip_adapter_if_t tcpip_if, tcpip_adapter_i
         if (status != TCPIP_ADAPTER_DHCP_STOPPED) {
             return ESP_ERR_TCPIP_ADAPTER_DHCP_NOT_STOPPED;
         }
+#if LWIP_DNS /* don't build if not configured for use in lwipopts.h */
+        u8_t numdns = 0;
+        for (numdns = 0; numdns < DNS_MAX_SERVERS; numdns ++) {
+            dns_setserver(numdns, NULL);
+        }
+#endif
     }
 
     ip4_addr_copy(esp_ip[tcpip_if].ip, ip_info->ip);
@@ -520,7 +529,12 @@ static void tcpip_adapter_dhcpc_cb(struct netif *netif)
     }
 
     if ( !ip4_addr_cmp(ip_2_ip4(&netif->ip_addr), IP4_ADDR_ANY) ) {
-        tcpip_adapter_ip_info_t *ip_info = &esp_ip[TCPIP_ADAPTER_IF_STA];
+        tcpip_adapter_ip_info_t *ip_info = NULL;
+        if( netif == esp_netif[TCPIP_ADAPTER_IF_STA] ) {
+            ip_info = &esp_ip[TCPIP_ADAPTER_IF_STA];
+        } else if(netif == esp_netif[TCPIP_ADAPTER_IF_ETH] ) {
+            ip_info = &esp_ip[TCPIP_ADAPTER_IF_ETH];
+        } 
 
         //check whether IP is changed
         if ( !ip4_addr_cmp(ip_2_ip4(&netif->ip_addr), &ip_info->ip) ||
@@ -697,34 +711,35 @@ esp_err_t tcpip_adapter_get_sta_list(wifi_sta_list_t *wifi_sta_list, tcpip_adapt
 
 esp_err_t tcpip_adapter_set_hostname(tcpip_adapter_if_t tcpip_if, const char *hostname)
 {
+#if LWIP_NETIF_HOSTNAME
     struct netif *p_netif;
-    static char hostinfo[TCPIP_HOSTNAME_MAX_SIZE + 1];
+    static char hostinfo[TCPIP_HOSTNAME_MAX_SIZE + 1][TCPIP_ADAPTER_IF_MAX];
 
     if (tcpip_if >= TCPIP_ADAPTER_IF_MAX || hostname == NULL) {
         return ESP_ERR_TCPIP_ADAPTER_INVALID_PARAMS;
     }
 
-    if (strlen(hostname) >= TCPIP_HOSTNAME_MAX_SIZE) {
+    if (strlen(hostname) > TCPIP_HOSTNAME_MAX_SIZE) {
         return ESP_ERR_TCPIP_ADAPTER_INVALID_PARAMS;
     }
 
     p_netif = esp_netif[tcpip_if];
     if (p_netif != NULL) {
-        if (netif_is_up(p_netif)) {
-            return ESP_ERR_TCPIP_ADAPTER_IF_NOT_READY;
-        } else {
-            memset(hostinfo, 0, sizeof(hostinfo));
-            memcpy(hostinfo, hostname, strlen(hostname));
-            p_netif->hostname = hostinfo;
-            return ESP_OK;
-        }
+        memset(hostinfo[tcpip_if], 0, sizeof(hostinfo[tcpip_if]));
+        memcpy(hostinfo[tcpip_if], hostname, strlen(hostname));
+        p_netif->hostname = hostinfo[tcpip_if];
+        return ESP_OK;
     } else {
-        return ESP_ERR_TCPIP_ADAPTER_INVALID_PARAMS;
+        return ESP_ERR_TCPIP_ADAPTER_IF_NOT_READY;
     }
+#else
+    return ESP_ERR_TCPIP_ADAPTER_IF_NOT_READY;
+#endif
 }
 
 esp_err_t tcpip_adapter_get_hostname(tcpip_adapter_if_t tcpip_if, const char **hostname)
 {
+#if LWIP_NETIF_HOSTNAME
     struct netif *p_netif = NULL;
     if (tcpip_if >= TCPIP_ADAPTER_IF_MAX || hostname == NULL) {
         return ESP_ERR_TCPIP_ADAPTER_INVALID_PARAMS;
@@ -737,6 +752,9 @@ esp_err_t tcpip_adapter_get_hostname(tcpip_adapter_if_t tcpip_if, const char **h
     } else {
         return ESP_ERR_TCPIP_ADAPTER_INVALID_PARAMS;
     }
+#else
+    return ESP_ERR_TCPIP_ADAPTER_IF_NOT_READY;
+#endif
 }
 
 #endif

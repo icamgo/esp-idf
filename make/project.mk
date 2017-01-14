@@ -26,9 +26,11 @@ help:
 	@echo "make defconfig - Set defaults for all new configuration options"
 	@echo ""
 	@echo "make all - Build app, bootloader, partition table"
-	@echo "make flash - Flash all components to a fresh chip"
+	@echo "make flash - Flash app, bootloader, partition table to a chip"
 	@echo "make clean - Remove all build output"
 	@echo "make size - Display the memory footprint of the app"
+	@echo "make erase_flash - Erase entire flash contents"
+	@echo "make monitor - Display serial output on terminal console"
 	@echo ""
 	@echo "make app - Build just the app"
 	@echo "make app-flash - Flash just the app"
@@ -42,6 +44,27 @@ ifndef MAKE_RESTARTS
 ifeq ("$(filter 4.% 3.81 3.82,$(MAKE_VERSION))","")
 $(warning "esp-idf build system only supports GNU Make versions 3.81 or newer. You may see unexpected results with other Makes.")
 endif
+endif
+
+# make IDF_PATH a "real" absolute path
+# * works around the case where a shell character is embedded in the environment variable value.
+# * changes Windows-style C:/blah/ paths to MSYS/Cygwin style /c/blah
+export IDF_PATH:=$(realpath $(wildcard $(IDF_PATH)))
+
+ifndef IDF_PATH
+$(error IDF_PATH variable is not set to a valid directory.)
+endif
+
+ifneq ("$(IDF_PATH)","$(realpath $(wildcard $(IDF_PATH)))")
+# due to the way make manages variables, this is hard to account for
+#
+# if you see this error, do the shell expansion in the shell ie
+# make IDF_PATH=~/blah not make IDF_PATH="~/blah"
+$(error If IDF_PATH is overriden on command line, it must be an absolute path with no embedded shell special characters)
+endif
+
+ifneq ("$(IDF_PATH)","$(subst :,,$(IDF_PATH))")
+$(error IDF_PATH cannot contain colons. If overriding IDF_PATH on Windows, use Cygwin-style /c/dir instead of C:/dir)
 endif
 
 # disable built-in make rules, makes debugging saner
@@ -142,17 +165,24 @@ include $(IDF_PATH)/make/common.mk
 all:
 ifdef CONFIG_SECURE_BOOT_ENABLED
 	@echo "(Secure boot enabled, so bootloader not flashed automatically. See 'make bootloader' output)"
+ifndef CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES
+	@echo "App built but not signed. Sign app & partition data before flashing, via espsecure.py:"
+	@echo "espsecure.py sign_data --keyfile KEYFILE $(APP_BIN)"
+	@echo "espsecure.py sign_data --keyfile KEYFILE $(PARTITION_TABLE_BIN)"
+endif
 	@echo "To flash app & partition table, run 'make flash' or:"
 else
 	@echo "To flash all build output, run 'make flash' or:"
 endif
 	@echo $(ESPTOOLPY_WRITE_FLASH) $(ESPTOOL_ALL_FLASH_ARGS)
 
+
+# Git version of ESP-IDF (of the form v1.0-285-g5c4f707)
+IDF_VER := $(shell git -C $(IDF_PATH) describe)
+
 # Set default LDFLAGS
 
 LDFLAGS ?= -nostdlib \
-	-L$(IDF_PATH)/lib \
-	-L$(IDF_PATH)/ld \
 	$(addprefix -L$(BUILD_DIR_BASE)/,$(COMPONENTS) $(TEST_COMPONENT_NAMES) $(SRCDIRS) ) \
 	-u call_user_start_cpu0	\
 	$(EXTRA_LDFLAGS) \
@@ -161,6 +191,7 @@ LDFLAGS ?= -nostdlib \
 	-Wl,--start-group	\
 	$(COMPONENT_LDFLAGS) \
 	-lgcc \
+	-lstdc++ \
 	-Wl,--end-group \
 	-Wl,-EL
 
@@ -174,7 +205,7 @@ LDFLAGS ?= -nostdlib \
 
 # CPPFLAGS used by C preprocessor
 # If any flags are defined in application Makefile, add them at the end. 
-CPPFLAGS := -DESP_PLATFORM $(CPPFLAGS) $(EXTRA_CPPFLAGS)
+CPPFLAGS := -DESP_PLATFORM -D IDF_VER=\"$(IDF_VER)\" -MMD -MP $(CPPFLAGS) $(EXTRA_CPPFLAGS)
 
 # Warnings-related flags relevant both for C and C++
 COMMON_WARNING_FLAGS = -Wall -Werror=all \
@@ -190,8 +221,7 @@ COMMON_FLAGS = \
 	-ffunction-sections -fdata-sections \
 	-fstrict-volatile-bitfields \
 	-mlongcalls \
-	-nostdlib \
-	-MMD -MP
+	-nostdlib
 
 # Optimization flags are set based on menuconfig choice
 ifneq ("$(CONFIG_OPTIMIZATION_LEVEL_RELEASE)","")
@@ -276,15 +306,25 @@ COMPONENT_LIBRARIES = $(filter $(notdir $(COMPONENT_PATHS_BUILDABLE)) $(TEST_COM
 
 # ELF depends on the library archive files for COMPONENT_LIBRARIES
 # the rules to build these are emitted as part of GenerateComponentTarget below
-$(APP_ELF): $(foreach libcomp,$(COMPONENT_LIBRARIES),$(BUILD_DIR_BASE)/$(libcomp)/lib$(libcomp).a)
+#
+# also depends on additional dependencies (linker scripts & binary libraries)
+# stored in COMPONENT_LINKER_DEPS, built via component.mk files' COMPONENT_ADD_LINKER_DEPS variable
+$(APP_ELF): $(foreach libcomp,$(COMPONENT_LIBRARIES),$(BUILD_DIR_BASE)/$(libcomp)/lib$(libcomp).a) $(COMPONENT_LINKER_DEPS)
 	$(summary) LD $(notdir $@)
 	$(CC) $(LDFLAGS) -o $@ -Wl,-Map=$(APP_MAP)
 
 # Generation of $(APP_BIN) from $(APP_ELF) is added by the esptool
 # component's Makefile.projbuild
 app: $(APP_BIN)
+ifeq ("$(CONFIG_SECURE_BOOT_ENABLED)$(CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)","y") # secure boot enabled, but remote sign app image
+	@echo "App built but not signed. Signing step via espsecure.py:"
+	@echo "espsecure.py sign_data --keyfile KEYFILE $(APP_BIN)"
+	@echo "Then flash app command is:"
+	@echo $(ESPTOOLPY_WRITE_FLASH) $(CONFIG_APP_OFFSET) $(APP_BIN)
+else
 	@echo "App built. Default flash app command is:"
 	@echo $(ESPTOOLPY_WRITE_FLASH) $(CONFIG_APP_OFFSET) $(APP_BIN)
+endif
 
 all_binaries: $(APP_BIN)
 
@@ -345,7 +385,7 @@ $(foreach component,$(TEST_COMPONENT_PATHS),$(eval $(call GenerateComponentTarge
 app-clean: $(addsuffix -clean,$(notdir $(COMPONENT_PATHS_BUILDABLE)))
 	$(summary) RM $(APP_ELF)
 	rm -f $(APP_ELF) $(APP_BIN) $(APP_MAP)
-	
+
 size: $(APP_ELF)
 	$(SIZE) $(APP_ELF)
 
@@ -374,10 +414,37 @@ $(IDF_PATH)/$(1)/.git:
 # Parse 'git submodule status' output for out-of-date submodule.
 # Status output prefixes status line with '+' if the submodule commit doesn't match
 ifneq ("$(shell cd ${IDF_PATH} && git submodule status $(1) | grep '^+')","")
-$$(info WARNING: git submodule $(1) may be out of date. Run 'git submodule update' to update.)
+$$(info WARNING: esp-idf git submodule $(1) may be out of date. Run 'git submodule update' in IDF_PATH dir to update.)
 endif
 endef
 
 # filter/subst in expression ensures all submodule paths begin with $(IDF_PATH), and then strips that prefix
 # so the argument is suitable for use with 'git submodule' commands
 $(foreach submodule,$(subst $(IDF_PATH)/,,$(filter $(IDF_PATH)/%,$(COMPONENT_SUBMODULES))),$(eval $(call GenerateSubmoduleCheckTarget,$(submodule))))
+
+
+# Check toolchain version using the output of xtensa-esp32-elf-gcc --version command.
+# The output normally looks as follows
+#     xtensa-esp32-elf-gcc (crosstool-NG crosstool-ng-1.22.0-59-ga194053) 4.8.5
+# The part in brackets is extracted into TOOLCHAIN_COMMIT_DESC variable,
+# the part after the brackets is extracted into TOOLCHAIN_GCC_VER.
+ifndef MAKE_RESTARTS
+TOOLCHAIN_COMMIT_DESC := $(shell $(CC) --version | sed -E -n 's|xtensa-esp32-elf-gcc\ \(([^)]*).*|\1|gp')
+TOOLCHAIN_GCC_VER := $(shell $(CC) --version | sed -E -n 's|xtensa-esp32-elf-gcc\ \(.*\)\ (.*)|\1|gp')
+
+# Officially supported version(s)
+SUPPORTED_TOOLCHAIN_COMMIT_DESC := crosstool-NG crosstool-ng-1.22.0-61-gab8375a
+SUPPORTED_TOOLCHAIN_GCC_VERSIONS := 5.2.0
+
+ifneq ($(TOOLCHAIN_COMMIT_DESC), $(SUPPORTED_TOOLCHAIN_COMMIT_DESC))
+$(info WARNING: Toolchain version is not supported: $(TOOLCHAIN_COMMIT_DESC))
+$(info Expected to see version: $(SUPPORTED_TOOLCHAIN_COMMIT_DESC))
+$(info Please check ESP-IDF setup instructions and update the toolchain, or proceed at your own risk.)
+endif
+ifeq (,$(findstring $(TOOLCHAIN_GCC_VER), $(SUPPORTED_TOOLCHAIN_GCC_VERSIONS)))
+$(warning WARNING: Compiler version is not supported: $(TOOLCHAIN_GCC_VER))
+$(info Expected to see version(s): $(SUPPORTED_TOOLCHAIN_GCC_VERSIONS))
+$(info Please check ESP-IDF setup instructions and update the toolchain, or proceed at your own risk.)
+endif
+endif #MAKE_RESTARTS 
+

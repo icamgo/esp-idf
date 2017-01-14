@@ -42,6 +42,9 @@
 /* This is the number of threads that can be started with sys_thread_new() */
 #define SYS_THREAD_MAX 4
 
+static bool g_lwip_in_critical_section = false;
+static BaseType_t g_lwip_critical_section_needs_taskswitch;
+
 #if !LWIP_COMPAT_MUTEX
 /** Create a new mutex
  * @param mutex pointer to the mutex to create
@@ -122,7 +125,18 @@ sys_sem_new(sys_sem_t *sem, u8_t count)
 void
 sys_sem_signal(sys_sem_t *sem)
 {
-  xSemaphoreGive(*sem);
+  if (g_lwip_in_critical_section){
+    /* In function event_callback in sockets.c, lwip signals a semaphore inside a critical 
+     * section. According to the FreeRTOS documentation for FreertosTaskEnterCritical, it's 
+     * not allowed to call any FreeRTOS API function within a critical region. Unfortunately,  
+     * it's not feasible to rework the affected region in LWIP. As a solution, when in a 
+     * critical region, we call xSemaphoreGiveFromISR. This routine is hand-vetted to work 
+     * in a critical region and it will not cause a task switch.
+     */
+    xSemaphoreGiveFromISR(*sem, &g_lwip_critical_section_needs_taskswitch);
+  } else {
+    xSemaphoreGive(*sem);
+  }
 }
 
 /*-----------------------------------------------------------------------------------*/
@@ -150,9 +164,9 @@ sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
   StartTime = xTaskGetTickCount();
 
   if (timeout != 0) {
-    if (xSemaphoreTake(*sem, timeout / portTICK_RATE_MS) == pdTRUE) {
+    if (xSemaphoreTake(*sem, timeout / portTICK_PERIOD_MS) == pdTRUE) {
       EndTime = xTaskGetTickCount();
-      Elapsed = (EndTime - StartTime) * portTICK_RATE_MS;
+      Elapsed = (EndTime - StartTime) * portTICK_PERIOD_MS;
 
       if (Elapsed == 0) {
         Elapsed = 1;
@@ -166,7 +180,7 @@ sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
     while (xSemaphoreTake(*sem, portMAX_DELAY) != pdTRUE);
 
     EndTime = xTaskGetTickCount();
-    Elapsed = (EndTime - StartTime) * portTICK_RATE_MS;
+    Elapsed = (EndTime - StartTime) * portTICK_PERIOD_MS;
 
     if (Elapsed == 0) {
       Elapsed = 1;
@@ -279,9 +293,9 @@ sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
   sys_mutex_lock(&(*mbox)->lock);
 
   if (timeout != 0) {
-    if (pdTRUE == xQueueReceive((*mbox)->os_mbox, &(*msg), timeout / portTICK_RATE_MS)) {
+    if (pdTRUE == xQueueReceive((*mbox)->os_mbox, &(*msg), timeout / portTICK_PERIOD_MS)) {
       EndTime = xTaskGetTickCount();
-      Elapsed = (EndTime - StartTime) * portTICK_RATE_MS;
+      Elapsed = (EndTime - StartTime) * portTICK_PERIOD_MS;
 
       if (Elapsed == 0) {
         Elapsed = 1;
@@ -309,7 +323,7 @@ sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
     }
 
     EndTime = xTaskGetTickCount();
-    Elapsed = (EndTime - StartTime) * portTICK_RATE_MS;
+    Elapsed = (EndTime - StartTime) * portTICK_PERIOD_MS;
 
     if (Elapsed == 0) {
       Elapsed = 1;
@@ -453,6 +467,7 @@ sys_prot_t
 sys_arch_protect(void)
 {
   portENTER_CRITICAL(&g_lwip_mux);
+  g_lwip_in_critical_section = true;
   return (sys_prot_t) 1;
 }
 
@@ -467,7 +482,12 @@ void
 sys_arch_unprotect(sys_prot_t pval)
 {
   (void) pval;
+  g_lwip_in_critical_section = false;
   portEXIT_CRITICAL(&g_lwip_mux);
+  if (g_lwip_critical_section_needs_taskswitch){
+    g_lwip_critical_section_needs_taskswitch = 0;
+    portYIELD();
+  }
 }
 
 /*-----------------------------------------------------------------------------------*/
@@ -546,7 +566,7 @@ void sys_thread_sem_deinit(void)
 
 void sys_delay_ms(uint32_t ms)
 {
-  vTaskDelay(ms/portTICK_RATE_MS);
+  vTaskDelay(ms / portTICK_PERIOD_MS);
 }
 
 

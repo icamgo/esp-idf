@@ -109,7 +109,7 @@ int hci_start_up(void)
     }
 
     xHciHostQueue = xQueueCreate(HCI_HOST_QUEUE_NUM, sizeof(BtTaskEvt_t));
-    xTaskCreate(hci_host_thread_handler, HCI_HOST_TASK_NAME, HCI_HOST_TASK_STACK_SIZE, NULL, HCI_HOST_TASK_PRIO, &xHciHostTaskHandle);
+    xTaskCreatePinnedToCore(hci_host_thread_handler, HCI_HOST_TASK_NAME, HCI_HOST_TASK_STACK_SIZE, NULL, HCI_HOST_TASK_PRIO, &xHciHostTaskHandle, 0);
 
     packet_fragmenter->init(&packet_fragmenter_callbacks);
     hal->open(&hal_callbacks);
@@ -146,7 +146,7 @@ void hci_host_task_post(void)
     evt.sig = 0xff;
     evt.par = 0;
 
-    if (xQueueSend(xHciHostQueue, &evt, 10 / portTICK_RATE_MS) != pdTRUE) {
+    if (xQueueSend(xHciHostQueue, &evt, 10 / portTICK_PERIOD_MS) != pdTRUE) {
         LOG_ERROR("xHciHostQueue failed\n");
     }
 }
@@ -198,7 +198,7 @@ static void hci_layer_deinit_env(void)
     command_waiting_response_t *cmd_wait_q;
 
     if (hci_host_env.command_queue) {
-        fixed_queue_free(hci_host_env.command_queue, osi_free);
+        fixed_queue_free(hci_host_env.command_queue, allocator_calloc.free);
     }
     if (hci_host_env.packet_queue) {
         fixed_queue_free(hci_host_env.packet_queue, buffer_allocator->free);
@@ -228,7 +228,7 @@ static void hci_host_thread_handler(void *arg)
         if (pdTRUE == xQueueReceive(xHciHostQueue, &e, (portTickType)portMAX_DELAY)) {
 
             if (e.sig == 0xff) {
-                if (API_vhci_host_check_send_available()) {
+                if (esp_vhci_host_check_send_available()) {
                     /*Now Target only allowed one packet per TX*/
                     BT_HDR *pkt = packet_fragmenter->fragment_current_packet();
                     if (pkt != NULL) {
@@ -405,8 +405,8 @@ static void restart_comamnd_waiting_response_timer(
     timeout = osi_alarm_time_diff(COMMAND_PENDING_TIMEOUT, timeout);
     timeout = (timeout <= COMMAND_PENDING_TIMEOUT) ? timeout : COMMAND_PENDING_TIMEOUT;
 
-    osi_alarm_set(cmd_wait_q->command_response_timer, timeout);
     cmd_wait_q->timer_is_set = true;
+    osi_alarm_set(cmd_wait_q->command_response_timer, timeout);
 }
 
 static void command_timed_out(void *context)
@@ -488,14 +488,14 @@ static bool filter_incoming_event(BT_HDR *packet)
 
     return false;
 intercepted:
+    restart_comamnd_waiting_response_timer(&hci_host_env.cmd_waiting_q, false);
+
     /*Tell HCI Host Task to continue TX Pending commands*/
     if (hci_host_env.command_credits &&
             !fixed_queue_is_empty(hci_host_env.command_queue)) {
         hci_host_task_post();
     }
     //ke_event_set(KE_EVENT_HCI_HOST_THREAD);
-
-    restart_comamnd_waiting_response_timer(&hci_host_env.cmd_waiting_q, false);
 
     if (wait_entry) {
         // If it has a callback, it's responsible for freeing the packet

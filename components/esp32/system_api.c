@@ -29,6 +29,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/xtensa_api.h"
+#include "rtc.h"
 
 static const char* TAG = "system_api";
 
@@ -110,14 +111,21 @@ void IRAM_ATTR esp_restart(void)
     uart_tx_wait_idle(1);
     uart_tx_wait_idle(2);
 
-    // Reset wifi/bluetooth (bb/mac)
-    SET_PERI_REG_MASK(DPORT_WIFI_RST_EN_REG, 0x1f);
-    REG_WRITE(DPORT_WIFI_RST_EN_REG, 0);
+    // Reset wifi/bluetooth/ethernet/sdio (bb/mac)
+    SET_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, 
+         DPORT_BB_RST | DPORT_FE_RST | DPORT_MAC_RST |
+         DPORT_BT_RST | DPORT_BTMAC_RST | DPORT_SDIO_RST |
+         DPORT_SDIO_HOST_RST | DPORT_EMAC_RST | DPORT_MACPWR_RST | 
+         DPROT_RW_BTMAC_RST | DPROT_RW_BTLP_RST);
+    REG_WRITE(DPORT_CORE_RST_EN_REG, 0);
 
     // Reset timer/spi/uart
     SET_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG,
             DPORT_TIMERS_RST | DPORT_SPI_RST_1 | DPORT_UART_RST);
     REG_WRITE(DPORT_PERIP_RST_EN_REG, 0);
+
+    // Set CPU back to XTAL source, no PLL, same as hard reset
+    rtc_set_cpu_freq(CPU_XTAL);
 
     // Reset CPUs
     if (core_id == 0) {

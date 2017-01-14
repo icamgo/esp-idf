@@ -338,7 +338,7 @@ void btu_task_post(uint32_t sig)
     evt.sig = sig;
     evt.par = 0;
 
-    if (xQueueSend(xBtuQueue, &evt, 10 / portTICK_RATE_MS) != pdTRUE) {
+    if (xQueueSend(xBtuQueue, &evt, 10 / portTICK_PERIOD_MS) != pdTRUE) {
         LOG_ERROR("xBtuQueue failed\n");
     }
 }
@@ -378,7 +378,6 @@ void btu_task_start_up(void)
 
 void btu_task_shut_down(void)
 {
-    fixed_queue_unregister_dequeue(btu_hci_msg_queue);
     fixed_queue_unregister_dequeue(btu_general_alarm_queue);
     fixed_queue_unregister_dequeue(btu_oneshot_alarm_queue);
     fixed_queue_unregister_dequeue(btu_l2cap_alarm_queue);

@@ -35,6 +35,8 @@ Contents:
    partition-tables
    build_system
    openocd
+   core_dump
+   Flash encryption <security/flash-encryption>
    Secure Boot <security/secure-boot>
    ULP coprocessor <api/ulp.rst>
 
@@ -48,7 +50,8 @@ Contents:
      1.3. Flash encryption and secure boot: how they work and APIs
      1.4. Lower Power Coprocessor - TBA
      1.5. Watchdogs <api/wdts>
-     1.6. ...
+     1.6. Memory allocation <api/mem_alloc>
+     1.7. ...
    2. Memory - TBA
      2.1. Memory layout of the application (IRAM/IROM, limitations of each) - TBA
      2.2. Flash layout and partitions - TBA
@@ -68,7 +71,7 @@ Contents:
      6.4. UART
      6.5. I2C - TBA
      6.6. I2S - TBA
-     6.7. SPI - TBA
+     6.7. SPI - <api/spi_master>
      6.8. CAN - TBA
      6.9. SD Controller - TBA
      6.10. Infrared - TBA
@@ -96,6 +99,7 @@ Contents:
    :maxdepth: 1
 
    Wi-Fi <api/esp_wifi>
+   Smart Config <api/esp_smartconfig>
    Bluetooth <api/bt>
    Watchdogs <api/wdts>
    OTA <api/ota>
@@ -104,13 +108,20 @@ Contents:
    LED Control <api/ledc>
    Remote Control <api/rmt>
    Timer <api/timer>
+   I2C <api/i2c>
    Pulse Counter <api/pcnt>
+   Sigma-delta Modulation <api/sigmadelta>
+   SD/MMC <api/sdmmc>
    SPI Flash and Partition APIs <api/spi_flash>
+   SPI Master API <api/spi_master>
    Logging <api/log>
    Non-Volatile Storage <api/nvs_flash>
    Virtual Filesystem <api/vfs>
+   FAT Filesystem <api/fatfs>
    Ethernet <api/esp_eth>
    Interrupt Allocation <api/intr_alloc>
+   Memory Allocation <api/mem_alloc>
+   Deep Sleep <api/deep_sleep>
    deep-sleep-stub
 
    Template <api/template>

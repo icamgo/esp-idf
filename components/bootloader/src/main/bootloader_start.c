@@ -25,6 +25,7 @@
 #include "rom/rtc.h"
 #include "rom/uart.h"
 #include "rom/gpio.h"
+#include "rom/secure_boot.h"
 
 #include "soc/soc.h"
 #include "soc/cpu.h"
@@ -40,9 +41,11 @@
 #include "esp_image_format.h"
 #include "esp_secure_boot.h"
 #include "esp_flash_encrypt.h"
+#include "esp_flash_partitions.h"
 #include "bootloader_flash.h"
-
+#include "bootloader_random.h"
 #include "bootloader_config.h"
+#include "rtc.h"
 
 extern int _bss_start;
 extern int _bss_end;
@@ -59,7 +62,7 @@ extern void Cache_Flush(int);
 void bootloader_main();
 static void unpack_load_app(const esp_partition_pos_t *app_node);
 void print_flash_info(const esp_image_header_t* pfhdr);
-void set_cache_and_start_app(uint32_t drom_addr,
+static void set_cache_and_start_app(uint32_t drom_addr,
     uint32_t drom_load_addr,
     uint32_t drom_size,
     uint32_t irom_addr,
@@ -116,16 +119,14 @@ bool load_partition_table(bootloader_state_t* bs)
 {
     const esp_partition_info_t *partitions;
     const int ESP_PARTITION_TABLE_DATA_LEN = 0xC00; /* length of actual data (signature is appended to this) */
-    const int MAX_PARTITIONS = ESP_PARTITION_TABLE_DATA_LEN / sizeof(esp_partition_info_t);
     char *partition_usage;
-
-    ESP_LOGI(TAG, "Partition Table:");
-    ESP_LOGI(TAG, "## Label            Usage          Type ST Offset   Length");
+    esp_err_t err;
+    int num_partitions;
 
 #ifdef CONFIG_SECURE_BOOT_ENABLED
     if(esp_secure_boot_enabled()) {
         ESP_LOGI(TAG, "Verifying partition table signature...");
-        esp_err_t err = esp_secure_boot_verify_signature(ESP_PARTITION_TABLE_ADDR, ESP_PARTITION_TABLE_DATA_LEN);
+        err = esp_secure_boot_verify_signature(ESP_PARTITION_TABLE_ADDR, ESP_PARTITION_TABLE_DATA_LEN);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to verify partition table signature.");
             return false;
@@ -141,16 +142,20 @@ bool load_partition_table(bootloader_state_t* bs)
     }
     ESP_LOGD(TAG, "mapped partition table 0x%x at 0x%x", ESP_PARTITION_TABLE_ADDR, (intptr_t)partitions);
 
-    for(int i = 0; i < MAX_PARTITIONS; i++) {
+    err = esp_partition_table_basic_verify(partitions, true, &num_partitions);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to verify partition table");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Partition Table:");
+    ESP_LOGI(TAG, "## Label            Usage          Type ST Offset   Length");
+
+    for(int i = 0; i < num_partitions; i++) {
         const esp_partition_info_t *partition = &partitions[i];
         ESP_LOGD(TAG, "load partition table entry 0x%x", (intptr_t)partition);
         ESP_LOGD(TAG, "type=%x subtype=%x", partition->type, partition->subtype);
         partition_usage = "unknown";
-
-        if (partition->magic != ESP_PARTITION_MAGIC) {
-            /* invalid partition definition indicates end-of-table */
-            break;
-        }
 
         /* valid partition table */
         switch(partition->type) {
@@ -229,8 +234,15 @@ static bool ota_select_valid(const esp_ota_select_entry_t *s)
 
 void bootloader_main()
 {
+    /* Set CPU to 80MHz.
+       Start by ensuring it is set to XTAL, as PLL must be off first
+       (may still be on due to soft reset.)
+    */
+    rtc_set_cpu_freq(CPU_XTAL);
+    rtc_set_cpu_freq(CPU_80M);
+
     uart_console_configure();
-    ESP_LOGI(TAG, "Espressif ESP32 2nd stage bootloader v. %s", BOOT_VERSION);
+    ESP_LOGI(TAG, "ESP-IDF %s 2nd stage bootloader", IDF_VER);
 #if defined(CONFIG_SECURE_BOOT_ENABLED) || defined(CONFIG_FLASH_ENCRYPTION_ENABLED)
     esp_err_t err;
 #endif
@@ -247,6 +259,9 @@ void bootloader_main()
     REG_CLR_BIT( RTC_CNTL_WDTCONFIG0_REG, RTC_CNTL_WDT_FLASHBOOT_MOD_EN );
     REG_CLR_BIT( TIMG_WDTCONFIG0_REG(0), TIMG_WDT_FLASHBOOT_MOD_EN );
     SPIUnlock();
+
+    ESP_LOGI(TAG, "Enabling RNG early entropy source...");
+    bootloader_random_enable();
 
     if(esp_image_load_header(0x1000, true, &fhdr) != ESP_OK) {
         ESP_LOGE(TAG, "failed to load bootloader header!");
@@ -266,7 +281,7 @@ void bootloader_main()
 
     if (bs.ota_info.offset != 0) {              // check if partition table has OTA info partition
         //ESP_LOGE("OTA info sector handling is not implemented");
-        if (bs.ota_info.size < 2 * sizeof(esp_ota_select_entry_t)) {
+        if (bs.ota_info.size < 2 * SPI_SEC_SIZE) {
             ESP_LOGE(TAG, "ERROR: ota_info partition size %d is too small (minimum %d bytes)", bs.ota_info.size, sizeof(esp_ota_select_entry_t));
             return;
         }
@@ -275,10 +290,9 @@ void bootloader_main()
             ESP_LOGE(TAG, "bootloader_mmap(0x%x, 0x%x) failed", bs.ota_info.offset, bs.ota_info.size);
             return;
         }
-        sa = ota_select_map[0];
-        sb = ota_select_map[1];
+        memcpy(&sa, ota_select_map, sizeof(esp_ota_select_entry_t));
+        memcpy(&sb, (uint8_t *)ota_select_map + SPI_SEC_SIZE, sizeof(esp_ota_select_entry_t));
         bootloader_munmap(ota_select_map);
-
         if(sa.ota_seq == 0xFFFFFFFF && sb.ota_seq == 0xFFFFFFFF) {
             // init status flash 
             if (bs.factory.offset != 0) {        // if have factory bin,boot factory bin
@@ -360,11 +374,13 @@ void bootloader_main()
     }
 #endif
 
+    ESP_LOGI(TAG, "Disabling RNG early entropy source...");
+    bootloader_random_disable();
+
     // copy loaded segments to RAM, set up caches for mapped segments, and start application
     ESP_LOGI(TAG, "Loading app partition at offset %08x", load_part_pos);
     unpack_load_app(&load_part_pos);
 }
-
 
 static void unpack_load_app(const esp_partition_pos_t* partition)
 {
@@ -413,6 +429,9 @@ static void unpack_load_app(const esp_partition_pos_t* partition)
              image_header.spi_size,
              (unsigned)image_header.entry_addr);
 
+    /* Important: From here on this function cannot access any global data (bss/data segments),
+       as loading the app image may overwrite these.
+    */
     for (int segment = 0; segment < image_header.segment_count; segment++) {
         esp_image_segment_header_t segment_header;
         uint32_t data_offs;
@@ -468,6 +487,31 @@ static void unpack_load_app(const esp_partition_pos_t* partition)
                  segment_header.load_addr, segment_header.data_len, segment_header.data_len, (load)?"load":(map)?"map":"");
 
         if (load) {
+            intptr_t sp, start_addr, end_addr;
+            ESP_LOGV(TAG, "bootloader_mmap data_offs=%08x data_len=%08x", data_offs, segment_header.data_len);
+
+            start_addr = segment_header.load_addr;
+            end_addr = start_addr + segment_header.data_len;
+
+            /* Before loading segment, check it doesn't clobber
+               bootloader RAM... */
+
+            if (end_addr < 0x40000000) {
+                sp = (intptr_t)get_sp();
+                if (end_addr > sp) {
+                    ESP_LOGE(TAG, "Segment %d end address %08x overlaps bootloader stack %08x - can't load",
+                         segment, end_addr, sp);
+                    return;
+                }
+                if (end_addr > sp - 256) {
+                    /* We don't know for sure this is the stack high water mark, so warn if
+                       it seems like we may overflow.
+                    */
+                    ESP_LOGW(TAG, "Segment %d end address %08x close to stack pointer %08x",
+                             segment, end_addr, sp);
+                }
+            }
+
             const void *data = bootloader_mmap(data_offs, segment_header.data_len);
             if(!data) {
                 ESP_LOGE(TAG, "bootloader_mmap(0x%xc, 0x%x) failed",
@@ -488,7 +532,7 @@ static void unpack_load_app(const esp_partition_pos_t* partition)
         image_header.entry_addr);
 }
 
-void set_cache_and_start_app(
+static void set_cache_and_start_app(
     uint32_t drom_addr,
     uint32_t drom_load_addr,
     uint32_t drom_size,
@@ -637,49 +681,28 @@ void print_flash_info(const esp_image_header_t* phdr)
 #endif
 }
 
-#if CONFIG_CONSOLE_UART_CUSTOM
-static uint32_t get_apb_freq(void)
-{
-    // Get the value of APB clock from RTC memory.
-    // The value is initialized in ROM code, and updated by librtc.a
-    // when APB clock is changed.
-    // This value is stored in RTC_CNTL_STORE5_REG as follows:
-    // RTC_CNTL_STORE5_REG = (freq >> 12) | ((freq >> 12) << 16)
-    uint32_t apb_freq_reg = REG_READ(RTC_CNTL_STORE5_REG);
-    uint32_t apb_freq_l = apb_freq_reg & 0xffff;
-    uint32_t apb_freq_h = apb_freq_reg >> 16;
-    if (apb_freq_l == apb_freq_h && apb_freq_l != 0) {
-        return apb_freq_l << 12;
-    } else {
-        // fallback value
-        return APB_CLK_FREQ_ROM;
-    }
-}
-#endif
-
 static void uart_console_configure(void)
 {
 #if CONFIG_CONSOLE_UART_NONE
     ets_install_putc1(NULL);
     ets_install_putc2(NULL);
 #else // CONFIG_CONSOLE_UART_NONE
+    const int uart_num = CONFIG_CONSOLE_UART_NUM;
+
     uartAttach();
     ets_install_uart_printf();
 
-#if CONFIG_CONSOLE_UART_CUSTOM
-    // Some constants to make the following code less upper-case
-    const int uart_num = CONFIG_CONSOLE_UART_NUM;
-    const int uart_baud = CONFIG_CONSOLE_UART_BAUDRATE;
-    const int uart_tx_gpio = CONFIG_CONSOLE_UART_TX_GPIO;
-    const int uart_rx_gpio = CONFIG_CONSOLE_UART_RX_GPIO;
     // ROM bootloader may have put a lot of text into UART0 FIFO.
     // Wait for it to be printed.
     uart_tx_wait_idle(0);
+
+#if CONFIG_CONSOLE_UART_CUSTOM
+    // Some constants to make the following code less upper-case
+    const int uart_tx_gpio = CONFIG_CONSOLE_UART_TX_GPIO;
+    const int uart_rx_gpio = CONFIG_CONSOLE_UART_RX_GPIO;
     // Switch to the new UART (this just changes UART number used for
     // ets_printf in ROM code).
     uart_tx_switch(uart_num);
-    // Set new baud rate
-    uart_div_modify(uart_num, (((uint64_t) get_apb_freq()) << 4) / uart_baud);
     // If console is attached to UART1 or if non-default pins are used,
     // need to reconfigure pins using GPIO matrix
     if (uart_num != 0 || uart_tx_gpio != 1 || uart_rx_gpio != 3) {
@@ -696,5 +719,19 @@ static void uart_console_configure(void)
         gpio_matrix_in(uart_rx_gpio, rx_idx, 0);
     }
 #endif // CONFIG_CONSOLE_UART_CUSTOM
+
+    // Set configured UART console baud rate
+    const int uart_baud = CONFIG_CONSOLE_UART_BAUDRATE;
+    uart_div_modify(uart_num, (APB_CLK_FREQ << 4) / uart_baud);
+
 #endif // CONFIG_CONSOLE_UART_NONE
+}
+
+/* empty rtc_printf implementation, to work with librtc
+   linking. Can be removed once -lrtc is removed from bootloader's
+   main component.mk.
+*/
+int rtc_printf(void)
+{
+    return 0;
 }

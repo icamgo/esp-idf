@@ -1076,12 +1076,19 @@ tBTM_STATUS BTM_BleSetAdvParamsStartAdv(UINT16 adv_int_min, UINT16 adv_int_max, 
         return BTM_ILLEGAL_VALUE;
     }
 
+    if(adv_type == BTM_BLE_CONNECT_DIR_EVT){
+        btm_ble_set_topology_mask(BTM_BLE_STATE_HI_DUTY_DIR_ADV_BIT);
+    }else if(adv_type == BTM_BLE_CONNECT_LO_DUTY_DIR_EVT){
+        btm_ble_set_topology_mask(BTM_BLE_STATE_LO_DUTY_DIR_ADV_BIT);
+    }else if(adv_type == BTM_BLE_CONNECT_LO_DUTY_DIR_EVT){
+        btm_ble_set_topology_mask(BTM_BLE_STATE_NON_CONN_ADV_BIT);
+    }
+
     p_cb->adv_interval_min = adv_int_min;
     p_cb->adv_interval_max = adv_int_max;
     p_cb->adv_chnl_map = chnl_map;
     p_addr_cb->own_addr_type = own_bda_type;
     p_cb->evt_type = adv_type;
-    p_cb->adv_mode = BTM_BLE_ADV_ENABLE;
     p_cb->afp = afp;
 
     if (p_dir_bda) {

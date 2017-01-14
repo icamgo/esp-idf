@@ -18,6 +18,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /// Status Return Value
 typedef enum {
     ESP_BT_STATUS_SUCCESS          =  0,          /* Successful operation. */
@@ -92,11 +96,11 @@ typedef enum {
 /// Maximum of the application id
 #define ESP_APP_ID_MAX  0x7fff
 
-/**
- * @brief Each profile callback function type
- * @param event : Event type
- * @param param : Point to callback parameter, currently is union type
- */
-typedef void (* esp_profile_cb_t)(uint32_t event, void *param);
+#define ESP_BD_ADDR_STR         "%02x:%02x:%02x:%02x:%02x:%02x"
+#define ESP_BD_ADDR_HEX(addr)   addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
 
-#endif      ///__ESP_BT_DEFS_H__
+#ifdef __cplusplus
+}
+#endif
+
+#endif     /* __ESP_BT_DEFS_H__ */

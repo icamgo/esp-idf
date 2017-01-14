@@ -26,8 +26,13 @@
 static tBTA_BLE_ADV_DATA gl_bta_adv_data;
 static tBTA_BLE_ADV_DATA gl_bta_scan_rsp_data;
 
-#define BTC_GAP_BLE_CB_TO_APP(_event, _param) ((esp_profile_cb_t )btc_profile_cb_get(BTC_PID_GAP_BLE))(_event, _param)
-
+static inline void btc_gap_ble_cb_to_app(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    esp_gap_ble_cb_t btc_gap_ble_cb = (esp_gap_ble_cb_t)btc_profile_cb_get(BTC_PID_GAP_BLE);
+    if (btc_gap_ble_cb) {
+	btc_gap_ble_cb(event, param);
+    }
+}
 
 static void btc_gap_adv_point_cleanup(void **buf)
 {
@@ -109,6 +114,7 @@ static void btc_to_bta_adv_data(esp_ble_adv_data_t *p_adv_data, tBTA_BLE_ADV_DAT
 
     if (p_adv_data->flag != 0) {
         mask = BTM_BLE_AD_BIT_FLAGS;
+        bta_adv_data->flag = p_adv_data->flag;
     }
 
     if (p_adv_data->include_name) {
@@ -200,7 +206,7 @@ static void btc_to_bta_adv_data(esp_ble_adv_data_t *p_adv_data, tBTA_BLE_ADV_DAT
                 }
 
                 if (NULL != bta_adv_data->p_services->p_uuid) {
-                    LOG_ERROR("%s - In 16-UUID_data", __FUNCTION__);
+                    LOG_DEBUG("%s - In 16-UUID_data", __FUNCTION__);
                     mask |= BTM_BLE_AD_BIT_SERVICE;
                     ++bta_adv_data->p_services->num_service;
                     *p_uuid_out16++ = bt_uuid.uu.uuid16;
@@ -220,7 +226,7 @@ static void btc_to_bta_adv_data(esp_ble_adv_data_t *p_adv_data, tBTA_BLE_ADV_DAT
                 }
 
                 if (NULL != bta_adv_data->p_service_32b->p_uuid) {
-                    LOG_ERROR("%s - In 32-UUID_data", __FUNCTION__);
+                    LOG_DEBUG("%s - In 32-UUID_data", __FUNCTION__);
                     mask |= BTM_BLE_AD_BIT_SERVICE_32;
                     ++bta_adv_data->p_service_32b->num_service;
                     *p_uuid_out32++ = bt_uuid.uu.uuid32;
@@ -313,24 +319,7 @@ static void btc_ble_set_adv_data(esp_ble_adv_data_t *adv_data,
 
 static void btc_ble_start_advertising (esp_ble_adv_params_t *ble_adv_params)
 {
-    tBTA_DM_DISC disc_mode = 0;
-    tBTA_DM_CONN conn_mode = 0;
     tBLE_BD_ADDR peer_addr;
-
-    if (ble_adv_params->adv_type == ADV_TYPE_NONCONN_IND) {
-        conn_mode = BTA_DM_BLE_NON_CONNECTABLE;
-    } else {
-        conn_mode = BTA_DM_BLE_CONNECTABLE;
-    }
-
-    if (ble_adv_params->adv_filter_policy == ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY) {
-        disc_mode = BTA_DM_BLE_GENERAL_DISCOVERABLE;
-    } else if (ble_adv_params->adv_filter_policy == ADV_FILTER_ALLOW_SCAN_WLST_CON_ANY
-               || ble_adv_params->adv_filter_policy == ADV_FILTER_ALLOW_SCAN_ANY_CON_WLST) {
-        disc_mode = BTA_DM_BLE_LIMITED_DISCOVERABLE;
-    } else if (ble_adv_params->adv_filter_policy == ADV_FILTER_ALLOW_SCAN_WLST_CON_WLST) {
-        disc_mode = BTA_DM_BLE_NON_DISCOVERABLE;
-    }
 
     if (!BLE_ISVALID_PARAM(ble_adv_params->adv_int_min, BTM_BLE_ADV_INT_MIN, BTM_BLE_ADV_INT_MAX) ||
             !BLE_ISVALID_PARAM(ble_adv_params->adv_int_max, BTM_BLE_ADV_INT_MIN, BTM_BLE_ADV_INT_MAX)) {
@@ -351,7 +340,6 @@ static void btc_ble_start_advertising (esp_ble_adv_params_t *ble_adv_params)
     }
     LOG_DEBUG("API_Ble_AppStartAdvertising\n");
 
-    ///
     memcpy(peer_addr.bda, ble_adv_params->peer_addr, ESP_BD_ADDR_LEN);
     peer_addr.type = ble_adv_params->peer_addr_type;
     BTA_DmSetBleAdvParamsAll(ble_adv_params->adv_int_min,
@@ -361,9 +349,6 @@ static void btc_ble_start_advertising (esp_ble_adv_params_t *ble_adv_params)
                              ble_adv_params->channel_map,
                              ble_adv_params->adv_filter_policy,
                              &peer_addr);
-
-    /*set connectable,discoverable, pairable and paired only modes of local device*/
-    BTA_DmSetVisibility(disc_mode, conn_mode, (UINT8)BTA_DM_NON_PAIRABLE, (UINT8)BTA_DM_CONN_ALL);
 }
 
 
@@ -524,16 +509,16 @@ void btc_gap_ble_cb_handler(btc_msg_t *msg)
 
     switch (msg->act) {
     case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-        BTC_GAP_BLE_CB_TO_APP(ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT, param);
+        btc_gap_ble_cb_to_app(ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT, param);
         break;
     case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT :
-        BTC_GAP_BLE_CB_TO_APP(ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT, param);
+        btc_gap_ble_cb_to_app(ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT, param);
         break;
     case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
-        BTC_GAP_BLE_CB_TO_APP(ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT, param);
+        btc_gap_ble_cb_to_app(ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT, param);
         break;
     case ESP_GAP_BLE_SCAN_RESULT_EVT:
-        BTC_GAP_BLE_CB_TO_APP(ESP_GAP_BLE_SCAN_RESULT_EVT, param);
+        btc_gap_ble_cb_to_app(ESP_GAP_BLE_SCAN_RESULT_EVT, param);
         break;
     default:
         break;

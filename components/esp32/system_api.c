@@ -17,6 +17,7 @@
 #include "esp_wifi.h"
 #include "esp_wifi_internal.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include "rom/efuse.h"
 #include "rom/cache.h"
 #include "rom/uart.h"
@@ -72,12 +73,27 @@ esp_err_t esp_efuse_read_mac(uint8_t* mac)
 esp_err_t system_efuse_read_mac(uint8_t mac[6]) __attribute__((alias("esp_efuse_read_mac")));
 
 
+void esp_restart_noos() __attribute__ ((noreturn));
+
 void IRAM_ATTR esp_restart(void)
 {
+#ifdef CONFIG_WIFI_ENABLED
     esp_wifi_stop();
+#endif
 
     // Disable scheduler on this core.
     vTaskSuspendAll();
+
+    esp_restart_noos();
+}
+
+/* "inner" restart function for after RTOS, interrupts & anything else on this
+ * core are already stopped. Stalls other core, resets hardware,
+ * triggers restart.
+*/
+void IRAM_ATTR esp_restart_noos()
+{
+
     const uint32_t core_id = xPortGetCoreID();
     const uint32_t other_core_id = core_id == 0 ? 1 : 0;
     esp_cpu_stall(other_core_id);
@@ -163,4 +179,8 @@ const char* system_get_sdk_version(void)
     return "master";
 }
 
+const char* esp_get_idf_version(void)
+{
+    return IDF_VER;
+}
 
